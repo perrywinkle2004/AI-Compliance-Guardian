@@ -1,0 +1,6 @@
+clause_id,clause_text,category
+1,"This agreement shall remain in force until terminated by either party with 30 days written notice. Confidentiality of all proprietary information must be maintained.",Confidentiality
+2,"The supplier shall be liable for all damages caused due to breach of contract without any limitation of liability.",Liability
+3,"The parties agree to comply with GDPR and ensure proper data protection practices.",Data Protection
+4,"This agreement does not explicitly state confidentiality obligations.",Confidentiality
+5,"The company shall not be held liable beyond the contract value in case of indirect damages.",Liability
