@@ -11,7 +11,7 @@ import Button from "../../../components/ui/Button";
  * - Generates reports via backend /reports/generate (form POST)
  */
 
-const API_BASE = (import.meta?.env?.VITE_API_URL || "http://localhost:8000").replace(/\/+$/, "");
+const API_BASE = (import.meta?.env?.VITE_API_URL || "http://localhost:3000").replace(/\/+$/, "");
 const UPLOAD_URL = `${API_BASE}/chat/upload`;
 const CSV_URL = `${API_BASE}/metrics/export/csv`;
 
@@ -67,7 +67,7 @@ const DragDropTop = ({ onProcessed }) => {
             try {
               const body = xr.responseText ? JSON.parse(xhrSafeParse(xr.responseText)) : null;
               if (body && body.detail) msg += ` — ${body.detail}`;
-            } catch (e) {}
+            } catch (e) { }
             reject(new Error(msg));
           }
         } catch (e) {
@@ -179,9 +179,9 @@ const DragDropTop = ({ onProcessed }) => {
       const payload = {
         filename: result.filename || "uploaded_file",
         summary: result?.report?.summary || result?.reply || "",
-        pii: result?.report?.pii || {},
-        remediation: result?.report?.remediation || [],
-        risks: result?.report?.risks || []
+        pii: result?.report?.ai_analysis?.pii_detected || {},
+        remediation: result?.report?.ai_analysis?.remediation_actions || [],
+        risks: result?.report?.ai_analysis?.violated_regulations || []
       };
 
       form.append("payload_json", JSON.stringify(payload));
@@ -282,40 +282,64 @@ const DragDropTop = ({ onProcessed }) => {
       {error && <div className="mt-3 text-sm text-red-600">{error}</div>}
 
       {result && (
-        <div className="mt-4 p-4 bg-gray-50 rounded border border-border">
+        <div className="mt-4 p-4 bg-card rounded border border-border">
           <div className="flex items-start justify-between">
-            <div className="pr-6">
-              <h3 className="font-medium">Processing Results</h3>
-              <p className="text-sm text-muted-foreground mt-1">{result?.report?.summary || result?.reply}</p>
-
-              <div className="mt-3">
-                <strong>PII detected:</strong>
-                <ul className="list-disc ml-6 mt-2 text-sm">
-                  {result?.report?.pii ? (
-                    Object.entries(result.report.pii).map(([k, v]) => (
-                      <li key={k}>
-                        <span className="capitalize">{k.replace('_', ' ')}:</span>
-                        {" "}
-                        {Array.isArray(v) ? (
-                          <>
-                            {v.length} instance{v.length !== 1 ? "s" : ""} —
-                            <div className="mt-1 ml-4 text-xs text-muted-foreground">
-                              {v.slice(0, 6).map((item, idx) => <div key={idx} className="truncate">{item}</div>)}
-                              {v.length > 6 && <div className="text-xs">...and {v.length - 6} more</div>}
-                            </div>
-                          </>
-                        ) : String(v)}
-                      </li>
-                    ))
-                  ) : <li>No structured PII returned</li>}
-                </ul>
+            <div className="pr-6 w-full">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold text-lg">AI Compliance Guardian Results</h3>
+                <div className={`px-3 py-1 rounded-full text-white text-sm font-semibold
+                  ${result?.report?.ai_analysis?.risk_level === 'CRITICAL' ? 'bg-red-800' :
+                    result?.report?.ai_analysis?.risk_level === 'HIGH' ? 'bg-red-600' :
+                    result?.report?.ai_analysis?.risk_level === 'MEDIUM' ? 'bg-yellow-500' :
+                    'bg-green-600'
+                  }
+                `}>
+                  Risk: {result?.report?.ai_analysis?.risk_level || 'UNKNOWN'}
+                </div>
+              </div>
+              
+              <p className="text-sm text-muted-foreground mt-1 mb-4">{result?.report?.summary || result?.reply}</p>
+              
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                 <div className="bg-muted/20 p-3 rounded text-center">
+                    <div className="text-2xl font-bold">{result?.report?.ai_analysis?.compliance_score || 0}/100</div>
+                    <div className="text-xs text-muted-foreground uppercase">Score</div>
+                 </div>
+                 <div className="bg-muted/20 p-3 rounded text-center">
+                    <div className="text-2xl font-bold">{result?.report?.ai_analysis?.compliance_status?.replace('_', ' ') || 'UNKNOWN'}</div>
+                    <div className="text-xs text-muted-foreground uppercase">Status</div>
+                 </div>
               </div>
 
-              {result?.report?.remediation && result.report.remediation.length > 0 && (
-                <div className="mt-3">
-                  <strong>Suggested remediation:</strong>
-                  <ul className="list-disc ml-6 mt-2 text-sm">
-                    {result.report.remediation.slice(0,5).map((r, i) => <li key={i}>{r}</li>)}
+              <div className="mt-3">
+                <strong className="text-foreground">PII Detected (Counts):</strong>
+                <ul className="list-disc ml-6 mt-2 text-sm text-muted-foreground">
+                  {result?.report?.ai_analysis?.pii_detected && Object.keys(result.report.ai_analysis.pii_detected).length > 0 ? (
+                    Object.entries(result.report.ai_analysis.pii_detected).map(([k, count]) => (
+                      <li key={k}>
+                        <span className="capitalize">{k.replace('_', ' ')}:</span> {count} instance(s)
+                      </li>
+                    ))
+                  ) : <li className="text-success">No PII detected</li>}
+                </ul>
+              </div>
+              
+              {result?.report?.ai_analysis?.violated_regulations && result.report.ai_analysis.violated_regulations.length > 0 && (
+                 <div className="mt-3">
+                   <strong className="text-foreground">Violated Regulations:</strong>
+                   <div className="flex flex-wrap gap-2 mt-2">
+                     {result.report.ai_analysis.violated_regulations.map((reg, i) => (
+                       <span key={i} className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded border border-red-200">{reg}</span>
+                     ))}
+                   </div>
+                 </div>
+              )}
+
+              {result?.report?.ai_analysis?.remediation_actions && result.report.ai_analysis.remediation_actions.length > 0 && (
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded">
+                  <strong className="text-blue-900">Suggested AI Remediation:</strong>
+                  <ul className="list-disc ml-6 mt-2 text-sm text-blue-800">
+                    {result.report.ai_analysis.remediation_actions.map((r, i) => <li key={i}>{r}</li>)}
                   </ul>
                 </div>
               )}

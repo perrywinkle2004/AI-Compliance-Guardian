@@ -1,0 +1,33 @@
+C:\Users\HP\OneDrive\Desktop\AI Compliance Guardian\backend\ai_service.py:3: FutureWarning: 
+
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+(trapped) error reading bcrypt version
+Traceback (most recent call last):
+  File "C:\Users\HP\AppData\Local\Programs\Python\Python313\Lib\site-packages\passlib\handlers\bcrypt.py", line 620, in _load_backend_mixin
+    version = _bcrypt.__about__.__version__
+              ^^^^^^^^^^^^^^^^^
+AttributeError: module 'bcrypt' has no attribute '__about__'
+Warning: pwd_context.hash raised password cannot be longer than 72 bytes, truncate manually if necessary (e.g. my_password[:72]). Returning a dummy hash.
+(trapped) error reading bcrypt version
+Traceback (most recent call last):
+  File "C:\Users\HP\AppData\Local\Programs\Python\Python313\Lib\site-packages\passlib\handlers\bcrypt.py", line 620, in _load_backend_mixin
+    version = _bcrypt.__about__.__version__
+              ^^^^^^^^^^^^^^^^^
+AttributeError: module 'bcrypt' has no attribute '__about__'
+Warning: pwd_context.hash raised password cannot be longer than 72 bytes, truncate manually if necessary (e.g. my_password[:72]). Returning a dummy hash.
+INFO:     Started server process [17072]
+INFO:     Waiting for application startup.
+Connected to MongoDB.
+Vigil AI Backend Started Successfully
+INFO:     Application startup complete.
+ERROR:    [Errno 10048] error while attempting to bind on address ('127.0.0.1', 8001): [winerror 10048] only one usage of each socket address (protocol/network address/port) is normally permitted
+INFO:     Waiting for application shutdown.
+Closed MongoDB connection.
+Vigil AI Backend Shutdown
+INFO:     Application shutdown complete.

@@ -5,6 +5,22 @@ import Header from "components/ui/Header";
 import Icon from "components/AppIcon";
 import Button from "components/ui/Button";
 
+// Same icon+color map as the widget
+const KIND_META = {
+  login: { icon: "LogIn", color: "text-green-500" },
+  login_failed: { icon: "ShieldAlert", color: "text-red-500" },
+  logout: { icon: "LogOut", color: "text-slate-400" },
+  register: { icon: "UserPlus", color: "text-blue-500" },
+  file_uploaded: { icon: "Upload", color: "text-purple-500" },
+  scan_started: { icon: "ScanLine", color: "text-yellow-500" },
+  scan_completed: { icon: "ShieldCheck", color: "text-green-500" },
+  remediation_applied: { icon: "Shield", color: "text-emerald-500" },
+  report_generated: { icon: "FileText", color: "text-blue-400" },
+  settings_changed: { icon: "Settings", color: "text-orange-400" },
+};
+const DEFAULT_META = { icon: "Clock", color: "text-primary" };
+const kindMeta = (kind) => KIND_META[kind] ?? DEFAULT_META;
+
 const API_BASE = (import.meta?.env?.VITE_API_URL || "http://localhost:8000").replace(/\/+$/, "");
 
 export default function ActivityPage() {
@@ -20,7 +36,11 @@ export default function ActivityPage() {
       setLoading(true);
       setErr(null);
       try {
-        const res = await fetch(`${API_BASE}/activity?limit=${limit}`);
+        const token = localStorage.getItem("token");
+        const res = await fetch(
+          `${API_BASE}/activity?limit=${limit}`,
+          token ? { headers: { Authorization: `Bearer ${token}` } } : {}
+        );
         if (!res.ok) throw new Error(`Server returned ${res.status}`);
         const json = await res.json();
         if (!cancelled) setItems(Array.isArray(json) ? json : []);
@@ -96,22 +116,43 @@ export default function ActivityPage() {
 
             {!loading && !err && items.length > 0 && (
               <div className="space-y-4">
-                {items.map((it) => (
-                  <div key={it.id} className="flex items-start space-x-3">
-                    <div className="p-2 bg-muted/30 rounded-lg">
-                      <Icon name="Clock" size={14} className="text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between">
-                        <div>
+                {items.map((it) => {
+                  const { icon, color } = kindMeta(it.kind);
+                  const detail = it.details
+                    ? Object.entries(it.details)
+                      .filter(([, v]) => v !== null && v !== undefined && v !== "")
+                      .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`)
+                      .join(" · ")
+                    : "";
+                  return (
+                    <div key={it.id} className="flex items-start space-x-3 py-2 border-b border-border/50 last:border-0">
+                      <div className="p-2 bg-muted/30 rounded-lg flex-shrink-0">
+                        <Icon name={icon} size={14} className={color} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-baseline justify-between gap-2">
                           <h4 className="text-sm font-medium text-foreground">{it.title}</h4>
-                          <p className="text-xs text-muted-foreground mt-1">{it.details && JSON.stringify(it.details)}</p>
+                          <div className="text-xs text-muted-foreground whitespace-nowrap">{it.timeLabel || it.timestamp}</div>
                         </div>
-                        <div className="text-xs text-muted-foreground ml-4">{it.timeLabel || it.timestamp}</div>
+                        {detail && (
+                          <p className="text-xs text-muted-foreground mt-0.5">{detail}</p>
+                        )}
+                        {it.username && (
+                          <div className="flex items-center gap-1 mt-1">
+                            <Icon name="User" size={10} className="text-muted-foreground" />
+                            <span className="text-xs text-muted-foreground">{it.username}</span>
+                            {it.role && (
+                              <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${it.role === "admin"
+                                  ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300"
+                                  : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                                }`}>{it.role}</span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 

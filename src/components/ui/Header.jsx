@@ -2,17 +2,24 @@ import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Icon from '../AppIcon';
 import UserProfileDropdown from './UserProfileDropdown';
+import { useAuth } from '../../context/AuthContext';
 import NotificationCenter from './NotificationCenter';
 
 const Header = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Dynamic dashboard path based on user role
+  const getDashboardPath = () => {
+    return user?.role === 'admin' ? '/admin-dashboard' : '/user-dashboard';
+  };
 
   const navigationItems = [
     {
       label: 'Dashboard',
-      path: '/compliance-dashboard',
+      path: getDashboardPath(),
       icon: 'LayoutDashboard',
       tooltip: 'Compliance monitoring and alert coordination hub'
     },
@@ -101,7 +108,7 @@ const Header = () => {
         <div className="flex items-center space-x-3">
           <NotificationCenter />
           <UserProfileDropdown />
-          
+
           {/* Mobile Menu Button */}
           <button
             onClick={toggleMobileMenu}

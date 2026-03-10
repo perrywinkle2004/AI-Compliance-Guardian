@@ -1,13 +1,49 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Icon from '../../../components/AppIcon';
 
-const MetricsOverview = () => {
+const API_BASE = (import.meta?.env?.VITE_API_URL || "http://localhost:8000").replace(/\/+$/, "");
+
+const MetricsOverview = ({ unitPrefix = 'normal' }) => {
+  const [metricData, setMetricData] = useState({
+    total_pii: 0,
+    total_scans: 0,
+    high_risk: 0,
+    compliance_score: 95
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchMetrics() {
+      try {
+        const res = await fetch(`${API_BASE}/metrics`);
+        if (res.ok) {
+          const data = await res.json();
+          setMetricData({
+            total_pii: data.total_pii || 0,
+            total_scans: data.total_scans || 0,
+            high_risk: data.high_risk_items || 0,
+            compliance_score: data.compliance_score || 95
+          });
+        }
+      } catch (err) {
+        console.error("Failed to fetch metrics", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    
+    fetchMetrics();
+    // Refresh when a new file is uploaded
+    const handler = () => fetchMetrics();
+    window.addEventListener('dashboard:refresh', handler);
+    return () => window.removeEventListener('dashboard:refresh', handler);
+  }, []);
   const metrics = [
     {
       id: 1,
       title: "Total PII Instances",
-      value: "12,847",
-      change: "+234",
+      value: loading ? "..." : metricData.total_pii.toLocaleString(),
+      change: "+12",
       changeType: "increase",
       icon: "Shield",
       color: "text-accent",
@@ -15,33 +51,33 @@ const MetricsOverview = () => {
     },
     {
       id: 2,
+      title: "Total Scans run",
+      value: loading ? "..." : metricData.total_scans.toLocaleString(),
+      change: "+5",
+      changeType: "increase",
+      icon: "FileText",
+      color: "text-primary",
+      bgColor: "bg-primary/10"
+    },
+    {
+      id: 3,
       title: "High-Risk Items",
-      value: "89",
-      change: "-12",
+      value: loading ? "..." : metricData.high_risk.toLocaleString(),
+      change: "-2",
       changeType: "decrease",
       icon: "AlertTriangle",
       color: "text-error",
       bgColor: "bg-error/10"
     },
     {
-      id: 3,
-      title: "Remediation Rate",
-      value: "94.2%",
-      change: "+2.1%",
-      changeType: "increase",
-      icon: "CheckCircle",
-      color: "text-success",
-      bgColor: "bg-success/10"
-    },
-    {
       id: 4,
-      title: "Compliance Score",
-      value: "87.5",
-      change: "+1.2",
+      title: "Avg Compliance Score",
+      value: loading ? "..." : metricData.compliance_score.toFixed(1),
+      change: "+1.5",
       changeType: "increase",
       icon: "TrendingUp",
-      color: "text-primary",
-      bgColor: "bg-primary/10"
+      color: "text-success",
+      bgColor: "bg-success/10"
     }
   ];
 

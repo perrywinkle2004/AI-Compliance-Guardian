@@ -140,99 +140,94 @@ const FileUploadModal = ({ isOpen, onClose, onFilesProcessed }) => {
     }
   };
 
-  const simulateFileProcessing = async (file) => {
-    // Simulate file processing with progress updates
-    const steps = [
-      { progress: 20, status: 'Uploading file...' },
-      { progress: 40, status: 'Extracting content...' },
-      { progress: 60, status: 'Analyzing risks...' },
-      { progress: 80, status: 'Generating remediation plans...' },
-      { progress: 100, status: 'Complete' }
-    ];
-
-    for (const step of steps) {
-      await new Promise(resolve => setTimeout(resolve, 800));
-      setUploadProgress(prev => ({
-        ...prev,
-        [file?.id]: { ...step }
-      }));
-    }
-
-    // Simulate extracted risks based on file type
-    const mockRisks = generateMockRisks(file);
-    const mockRemediationPlans = generateMockRemediationPlans(mockRisks);
-
-    return {
-      extractedRisks: mockRisks,
-      remediationPlans: mockRemediationPlans
-    };
-  };
-
-  const generateMockRisks = (file) => {
-    const riskTypes = [
-      'Unencrypted PII in database',
-      'Exposed API endpoints',
-      'Inadequate access controls',
-      'Missing data retention policies',
-      'Weak password requirements',
-      'Unmonitored data transfers',
-      'Non-compliant data processing',
-      'Insufficient audit trails'
-    ];
-
-    return riskTypes?.slice(0, Math.floor(Math.random() * 5) + 2)?.map((risk, index) => ({
-      id: `risk-${file?.id}-${index}`,
-      title: risk,
-      severity: ['critical', 'high', 'medium', 'low']?.[Math.floor(Math.random() * 4)],
-      category: ['Data Protection', 'Access Control', 'Compliance', 'Security']?.[Math.floor(Math.random() * 4)],
-      description: `Risk identified in ${file?.name}: ${risk}`,
-      affectedSystems: Math.floor(Math.random() * 10) + 1,
-      estimatedImpact: ['High', 'Medium', 'Low']?.[Math.floor(Math.random() * 3)]
-    }));
-  };
-
-  const generateMockRemediationPlans = (risks) => {
-    return risks?.map(risk => ({
-      id: `plan-${risk?.id}`,
-      riskId: risk?.id,
-      title: `Remediation for: ${risk?.title}`,
-      priority: risk?.severity === 'critical' ? 'urgent' : risk?.severity,
-      estimatedHours: Math.floor(Math.random() * 20) + 5,
-      tasks: [
-        'Assess current state',
-        'Implement security controls',
-        'Update policies and procedures',
-        'Train affected personnel',
-        'Conduct verification testing',
-        'Document compliance measures'
-      ]?.slice(0, Math.floor(Math.random() * 4) + 2),
-      assignee: processingOptions?.assignee || 'sarah_mitchell',
-      targetDate: new Date(Date.now() + Math.random() * 30 * 24 * 60 * 60 * 1000)?.toISOString()?.split('T')?.[0]
-    }));
-  };
-
   const handleProcessFiles = async () => {
     if (files?.length === 0) return;
 
     setIsProcessing(true);
     const results = { totalRisks: 0, totalPlans: 0, files: [] };
 
-    for (const file of files) {
-      const processedData = await simulateFileProcessing(file);
-      
-      setFiles(prev => prev?.map(f => 
-        f?.id === file?.id 
-          ? { ...f, status: 'processed', ...processedData }
-          : f
-      ));
+    for (const fileObj of files) {
+      if (fileObj.status === 'processed') continue; // skip already done
 
-      results.totalRisks += processedData?.extractedRisks?.length;
-      results.totalPlans += processedData?.remediationPlans?.length;
-      results?.files?.push({
-        name: file?.name,
-        risksFound: processedData?.extractedRisks?.length,
-        plansCreated: processedData?.remediationPlans?.length
-      });
+      // Simulate a fast upload progress until actual fetch succeeds (fetch doesn't have native upload progress easily, 
+      // but we can fake the UI steps for UX while waiting for the AI)
+      const steps = [
+        { progress: 20, status: 'Uploading file...' },
+        { progress: 40, status: 'Extracting content...' },
+        { progress: 60, status: 'AI Analyzing risks...' },
+        { progress: 80, status: 'AI Generating remediation...' },
+      ];
+
+      let stepIndex = 0;
+      const progressInterval = setInterval(() => {
+        if (stepIndex < steps.length) {
+          setUploadProgress(prev => ({ ...prev, [fileObj.id]: steps[stepIndex] }));
+          stepIndex++;
+        }
+      }, 800);
+
+      try {
+        const formData = new FormData();
+        formData.append("file", fileObj.file);
+        formData.append("message", "Uploaded via compliance dashboard modal");
+        
+        const API_BASE = (import.meta?.env?.VITE_API_URL || "http://localhost:8000").replace(/\/+$/, "");
+        const response = await fetch(`${API_BASE}/chat/upload`, {
+          method: "POST",
+          body: formData
+        });
+
+        clearInterval(progressInterval);
+        setUploadProgress(prev => ({ ...prev, [fileObj.id]: { progress: 100, status: 'Complete' } }));
+
+        if (!response.ok) {
+           throw new Error(`Upload failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const ai_analysis = data.report?.ai_analysis || {};
+        
+        // Convert ai_analysis back to the format this modal expects for 'risks' and 'plans' arrays
+        const extractedRisks = (ai_analysis.violated_regulations || []).map((reg, idx) => ({
+          id: `risk-${fileObj.id}-${idx}`,
+          title: reg,
+          severity: ai_analysis.risk_level?.toLowerCase() || 'medium',
+          category: 'Compliance',
+          description: `AI identified violation of: ${reg}`,
+          affectedSystems: 1,
+          estimatedImpact: ai_analysis.risk_level === 'CRITICAL' ? 'High' : 'Medium'
+        }));
+
+        const remediationPlans = (ai_analysis.remediation_actions || []).map((action, idx) => ({
+          id: `plan-${fileObj.id}-${idx}`,
+          riskId: extractedRisks[idx]?.id || `plan-${fileObj.id}-${idx}`, 
+          title: `AI Remediation: ${action.substring(0, 30)}...`,
+          priority: ai_analysis.risk_level?.toLowerCase() || 'medium',
+          estimatedHours: 4,
+          tasks: [action],
+          assignee: processingOptions?.assignee || 'sarah_mitchell',
+          targetDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)?.toISOString()?.split('T')?.[0]
+        }));
+        
+        setFiles(prev => prev?.map(f => 
+          f?.id === fileObj?.id 
+            ? { ...f, status: 'processed', extractedRisks, remediationPlans, aiData: ai_analysis }
+            : f
+        ));
+
+        results.totalRisks += extractedRisks.length;
+        results.totalPlans += remediationPlans.length;
+        results.files.push({
+          name: fileObj.name,
+          risksFound: extractedRisks.length,
+          plansCreated: remediationPlans.length
+        });
+
+      } catch (err) {
+        clearInterval(progressInterval);
+        setUploadProgress(prev => ({ ...prev, [fileObj.id]: { progress: 0, status: `Error: ${err.message}` } }));
+        setFiles(prev => prev?.map(f => f?.id === fileObj?.id ? { ...f, status: 'error' } : f));
+      }
     }
 
     setProcessedResults(results);

@@ -1,13 +1,28 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Icon from '../AppIcon';
+import { useAuth } from '../../context/AuthContext';
 
 const BreadcrumbNavigation = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  // Dynamic dashboard path based on user role
+  const getDashboardPath = () => {
+    return user?.role === 'admin' ? '/admin-dashboard' : '/user-dashboard';
+  };
 
   // Route configuration with breadcrumb information
   const routeConfig = {
+    '/admin-dashboard': {
+      label: 'Dashboard',
+      icon: 'LayoutDashboard'
+    },
+    '/user-dashboard': {
+      label: 'Dashboard',
+      icon: 'LayoutDashboard'
+    },
     '/compliance-dashboard': {
       label: 'Dashboard',
       icon: 'LayoutDashboard'
@@ -15,39 +30,39 @@ const BreadcrumbNavigation = () => {
     '/data-source-management': {
       label: 'Data Sources',
       icon: 'Database',
-      parent: '/compliance-dashboard'
+      parent: getDashboardPath()
     },
     '/risk-assessment-details': {
       label: 'Risk Analysis',
       icon: 'Shield',
-      parent: '/compliance-dashboard'
+      parent: getDashboardPath()
     },
     '/remediation-planning': {
       label: 'Remediation',
       icon: 'CheckCircle',
-      parent: '/compliance-dashboard'
+      parent: getDashboardPath()
     },
     '/compliance-reports': {
       label: 'Reports',
       icon: 'FileText',
-      parent: '/compliance-dashboard'
+      parent: getDashboardPath()
     }
   };
 
   const buildBreadcrumbs = (pathname) => {
     const breadcrumbs = [];
     const currentRoute = routeConfig?.[pathname];
-    
+
     if (!currentRoute) return breadcrumbs;
 
     // Build breadcrumb chain
     let current = pathname;
     const visited = new Set();
-    
+
     while (current && !visited?.has(current)) {
       visited?.add(current);
       const route = routeConfig?.[current];
-      
+
       if (route) {
         breadcrumbs?.unshift({
           label: route?.label,
@@ -67,7 +82,7 @@ const BreadcrumbNavigation = () => {
   const breadcrumbs = buildBreadcrumbs(location?.pathname);
 
   // Don't render breadcrumbs on login page or if no breadcrumbs
-  if (location?.pathname === '/login' || breadcrumbs?.length === 0) {
+  if (breadcrumbs?.length === 0) {
     return null;
   }
 
@@ -83,7 +98,7 @@ const BreadcrumbNavigation = () => {
       {breadcrumbs?.map((breadcrumb, index) => (
         <React.Fragment key={breadcrumb?.path}>
           <Icon name="ChevronRight" size={14} className="text-muted-foreground" />
-          
+
           <button
             onClick={() => handleBreadcrumbClick(breadcrumb?.path)}
             disabled={breadcrumb?.isActive}

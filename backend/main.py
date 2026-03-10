@@ -1,6 +1,8 @@
-# backend/main.py
 import os
 import uuid
+from dotenv import load_dotenv
+
+load_dotenv()
 from datetime import datetime, timedelta
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,7 +25,17 @@ from reportlab.pdfgen import canvas
 import io
 import threading
 
+from database import get_database, ANALYSIS_COLLECTION, ComplianceAnalysisResult
+from utils import extract_text_from_file
+from ai_service import analyze_document_with_ai
+
+from fastapi import Depends
+from rbac import admin_only
+from auth import router as auth_router
+from activity_store import _record_activity, ACTIVITY, fmt_time_label
+
 app = FastAPI(title="AI Compliance Assistant (demo)")
+app.include_router(auth_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -157,7 +169,7 @@ def compute_metric_from_findings(findings: Dict[str, List[str]]) -> Dict[str, An
     remediated = int(risk_items * 0.5)
     return {"complianceScore": round(float(compliance), 1), "riskItems": int(risk_items), "remediatedItems": int(remediated)}
 
-# -------------------- Upload endpoint (kept close to original) --------------------
+# -------------------- Upload endpoint (Updated with AI Compliance Analysis) --------------------
 @app.post("/chat/upload")
 async def chat_upload(file: UploadFile = File(...), message: str = Form(None)):
     uid = uuid.uuid4().hex
@@ -173,40 +185,102 @@ async def chat_upload(file: UploadFile = File(...), message: str = Form(None)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    # try to read as text
-    try:
-        async with aiofiles.open(dest, "r", encoding="utf-8", errors="ignore") as fr:
-            content = await fr.read()
-    except Exception:
-        content = ""
-    if not content:
+    # Determine dataset type based loosely on extension or filename
+    dataset_type = "document"
+    ext_lower = os.path.splitext(file.filename)[1].lower()
+    if ext_lower in ['.csv', '.xlsx']: dataset_type = "dataset"
+    elif "mail" in file.filename.lower() or ext_lower in ['.eml', '.msg']: dataset_type = "email"
+    elif "slack" in file.filename.lower(): dataset_type = "slack message"
+    elif "jira" in file.filename.lower(): dataset_type = "jira ticket"
+    elif "code" in file.filename.lower() or ext_lower in ['.py', '.js', '.ts', '.html']: dataset_type = "source code"
+    elif "contract" in file.filename.lower(): dataset_type = "contract"
+
+    # Extract text content
+    content = extract_text_from_file(dest)
+    if not content or "binary or non-text file" in content:
         content = f"(binary or non-text file) {file.filename}"
 
-    pii = pii_detector_agent(content)
-    summary = summarizer_agent(content)
-    reply = f"Processed {file.filename} — summary: {summary}"
+    # Perform AI Compliance Analysis using Gemini
+    ai_result_dict, _ = await analyze_document_with_ai(content, file.filename, dataset_type)
+    
+    # Format and save to MongoDB
+    final_score = ai_result_dict.get("compliance_score", 0)
+    
+    db_record = ComplianceAnalysisResult(
+        document_name=file.filename,
+        dataset_type=dataset_type,
+        compliance_status=ai_result_dict.get("compliance_status", "UNKNOWN"),
+        risk_level=ai_result_dict.get("risk_level", "UNKNOWN"),
+        compliance_score=final_score,
+        pii_detected=ai_result_dict.get("pii_detected", {}),
+        violated_regulations=ai_result_dict.get("violated_regulations", []),
+        risk_items=ai_result_dict.get("risk_items", 0),
+        remediation_actions=ai_result_dict.get("remediation", [])
+    )
+    
+    # Save to MongoDB (non-fatal if Mongo is not available)
+    db = get_database()
+    record_dict = db_record.model_dump(by_alias=True, exclude_none=True)
+    try:
+        await db[ANALYSIS_COLLECTION].insert_one(record_dict)
+    except Exception as e:
+        print(f"Failed to save analysis to DB: {e}")
 
+    # JSON-serialize the record_dict so datetimes and ObjectIds become strings
+    def _serialize(obj):
+        from bson import ObjectId  # local import to avoid top-level dependency issues
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        if isinstance(obj, ObjectId):
+            return str(obj)
+        if isinstance(obj, dict):
+            return {k: _serialize(v) for k, v in obj.items() if k != "_id"}
+        if isinstance(obj, list):
+            return [_serialize(i) for i in obj]
+        return obj
+
+    record_dict_serializable = _serialize(record_dict)
+
+    # Maintain existing mock metrics for Dashboard compatibility (if dashboard relies on it initially)
+    # The true dashboard should eventually fetch from MongoDB, but we keep this for backwards compatibility
     global DISTRIBUTION_COUNTER, CATEGORY_COUNTER, METRICS_TREND
-    if pii.get("emails"):
-        DISTRIBUTION_COUNTER["Email"] = DISTRIBUTION_COUNTER.get("Email", 0) + len(pii["emails"])
-        CATEGORY_COUNTER["Email"] = CATEGORY_COUNTER.get("Email", 0) + len(pii["emails"])
-    if pii.get("phones"):
-        DISTRIBUTION_COUNTER["Slack"] = DISTRIBUTION_COUNTER.get("Slack", 0) + len(pii["phones"])
-        CATEGORY_COUNTER["Phone"] = CATEGORY_COUNTER.get("Phone", 0) + len(pii["phones"])
-    if pii.get("ssn_like"):
-        CATEGORY_COUNTER["SSN"] = CATEGORY_COUNTER.get("SSN", 0) + len(pii["ssn_like"])
-        DISTRIBUTION_COUNTER["Database"] = DISTRIBUTION_COUNTER.get("Database", 0) + len(pii["ssn_like"])
+    
+    # Map AI PII keys to the expected categories
+    pii = ai_result_dict.get("pii_detected", {})
+    if pii.get("email", 0) > 0:
+        DISTRIBUTION_COUNTER["Email"] = DISTRIBUTION_COUNTER.get("Email", 0) + pii["email"]
+        CATEGORY_COUNTER["Email"] = CATEGORY_COUNTER.get("Email", 0) + pii["email"]
+    if pii.get("phone_number", 0) > 0:
+        DISTRIBUTION_COUNTER["Slack"] = DISTRIBUTION_COUNTER.get("Slack", 0) + pii["phone_number"]
+        CATEGORY_COUNTER["Phone"] = CATEGORY_COUNTER.get("Phone", 0) + pii["phone_number"]
+    if pii.get("ssn", 0) > 0 or pii.get("credit_card", 0) > 0:
+        val = pii.get("ssn", 0) + pii.get("credit_card", 0)
+        CATEGORY_COUNTER["SSN"] = CATEGORY_COUNTER.get("SSN", 0) + val
+        DISTRIBUTION_COUNTER["Database"] = DISTRIBUTION_COUNTER.get("Database", 0) + val
 
-    metric = compute_metric_from_findings(pii)
+    # We manually create the metric point to inject the AI score
+    remediated = int((db_record.risk_items or 0) * 0.5)
     metric_point = {
         "timestamp": datetime.utcnow().isoformat() + "Z",
-        "complianceScore": metric["complianceScore"],
-        "riskItems": metric["riskItems"],
-        "remediatedItems": metric["remediatedItems"],
+        "complianceScore": float(final_score),
+        "riskItems": int(db_record.risk_items or 0),
+        "remediatedItems": remediated,
     }
     METRICS_TREND.append(metric_point)
 
-    return JSONResponse(content={"reply": reply, "report": {"summary": summary, "pii": pii}})
+    # Record to activity feed
+    pii_count = sum(pii.values()) if isinstance(pii, dict) else 0
+    _record_activity(
+        kind="file_uploaded",
+        title=f"File uploaded & Analyzed: {file.filename}",
+        details={"filename": file.filename, "pii_items_found": pii_count, "risk_level": db_record.risk_level},
+    )
+
+    summary = f"AI Compliance Check completed. Status: {db_record.compliance_status}. Risk: {db_record.risk_level}."
+    reply = f"Processed {file.filename} — {summary}"
+
+    # Return the structured JSON to the frontend
+    return JSONResponse(content={"reply": reply, "report": {"summary": summary, "ai_analysis": record_dict_serializable}})
 
 # -------------------- Aggregated metrics endpoint (hourly) --------------------
 def parse_iso_z(ts: str) -> Optional[datetime]:
@@ -335,7 +409,10 @@ async def export_metrics_csv(range_hours: int = Query(24, ge=1, le=24*30)):
 LAST_SCAN: Dict[str, Any] = {"status": "idle", "timestamp": None, "findings": None, "summary": None, "remediation": []}
 
 @app.post("/scan/start")
-async def start_scan(data_source: Optional[str] = Form(None)):
+async def start_scan(
+    data_source: Optional[str] = Form(None),
+    role: str = Depends(admin_only)
+):
     """
     Start a simulated scan in the background.
     Accepts optional data_source (string).
@@ -411,7 +488,10 @@ async def scan_status():
     return JSONResponse(content=LAST_SCAN)
 
 @app.post("/remediation/apply")
-async def remediation_apply(plan_index: Optional[int] = Form(None)):
+async def remediation_apply(
+    plan_index: Optional[int] = Form(None),
+    role: str = Depends(admin_only)
+):
     """
     Simulate applying a remediation plan returned by last scan.
     plan_index: index of remediation in LAST_SCAN.remediation array
@@ -552,7 +632,12 @@ def build_pdf_report_structured(payload: dict, title: str = "Compliance Report")
     return out_path
 
 @app.post("/reports/generate")
-async def generate_report(format: Optional[str] = Form("docx"), title: Optional[str] = Form("Compliance Report"), payload_json: Optional[str] = Form("{}")):
+async def generate_report(
+    format: Optional[str] = Form("docx"),
+    title: Optional[str] = Form("Compliance Report"),
+    payload_json: Optional[str] = Form("{}"),
+    role: str = Depends(admin_only)
+):
     """
     Generate a structured report (docx or pdf).
     Accepts form fields:
@@ -575,28 +660,9 @@ async def generate_report(format: Optional[str] = Form("docx"), title: Optional[
 
     return FileResponse(out, media_type="application/octet-stream", filename=os.path.basename(out))
 
-# -------------------- Compatibility wrappers & activity feed (append below existing file) --------------------
+# -------------------- Compatibility wrappers & activity feed --------------------
 from fastapi import Request, Body
 from typing import Any as TAny
-
-# Simple in-memory activity log (kept minimal for demo)
-ACTIVITY: List[Dict[str, TAny]] = []
-
-def _record_activity(kind: str, title: str, details: dict):
-    """Append a small activity record (kept very simple)."""
-    try:
-        ACTIVITY.insert(0, {
-            "id": uuid.uuid4().hex,
-            "kind": kind,
-            "title": title,
-            "details": details,
-            "timestamp": datetime.utcnow().isoformat() + "Z"
-        })
-        # keep the list reasonably short
-        if len(ACTIVITY) > 200:
-            ACTIVITY.pop()
-    except Exception:
-        pass
 
 @app.post("/scan/start_json")
 async def start_scan_json(request: Request):
@@ -657,38 +723,52 @@ async def generate_report_json(format: Optional[str] = Query("docx"), payload: O
     return FileResponse(out, media_type="application/octet-stream", filename=os.path.basename(out))
 
 @app.get("/activity")
-async def get_activity(limit: int = Query(25, ge=1, le=200)):
+async def get_activity(limit: int = Query(25, ge=1, le=200), role: Optional[str] = Query(None)):
     """
-    Simple activity feed for the UI. Returns the most recent activity records (in-memory).
-    This is ephemeral (server restart clears it) — useful for demo / UI integration.
+    Activity feed for the UI. Returns the most recent activity records.
+    Optionally filter by role query param (e.g. ?role=admin).
     """
-    # format quick human-friendly time label
+    items = ACTIVITY
+    if role:
+        items = [it for it in items if it.get("role") == role or it.get("role") is None]
+
     def _fmt(item):
-        ts = item.get("timestamp")
-        try:
-            dt = parse_iso_z(ts)
-            if dt:
-                diff = datetime.utcnow() - dt
-                mins = int(diff.total_seconds() // 60)
-                if mins < 60:
-                    label = f"{mins}m ago"
-                else:
-                    hrs = mins // 60
-                    label = f"{hrs}h ago"
-            else:
-                label = ts
-        except Exception:
-            label = ts
         return {
             "id": item.get("id"),
             "kind": item.get("kind"),
             "title": item.get("title"),
             "details": item.get("details"),
+            "username": item.get("username"),
+            "role": item.get("role"),
             "timestamp": item.get("timestamp"),
-            "timeLabel": label
+            "timeLabel": fmt_time_label(item.get("timestamp"))
         }
 
-    return JSONResponse(content=[_fmt(it) for it in ACTIVITY[:limit]])
+    return JSONResponse(content=[_fmt(it) for it in items[:limit]])
+
+
+class ActivityLogRequest(BaseModel):
+    kind: str
+    title: str
+    details: Optional[Dict[str, Any]] = None
+    username: Optional[str] = None
+    role: Optional[str] = None
+
+
+@app.post("/activity/log")
+async def log_activity_from_client(req: ActivityLogRequest):
+    """
+    Frontend can POST events here (e.g. logout, page navigation, settings change).
+    No auth required for demo — add Depends(get_current_user) in production.
+    """
+    _record_activity(
+        kind=req.kind,
+        title=req.title,
+        details=req.details or {},
+        username=req.username,
+        role=req.role,
+    )
+    return JSONResponse(content={"status": "ok"})
 
 # For convenience: make the original endpoints also record some activity (without modifying their logic).
 # We add lightweight wrappers that call the original functions and record events.
@@ -720,6 +800,15 @@ async def generate_report_and_record(format: Optional[str] = Form("docx"), title
         pass
     return resp
 
-# ---------------------------------------------------------------------------------------
-# End of appended compatibility helpers
-# ---------------------------------------------------------------------------------------
+
+from database import connect_to_mongo, close_mongo_connection
+
+@app.on_event("startup")
+async def startup_event():
+    await connect_to_mongo()
+    print("Vigil AI Backend Started Successfully")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await close_mongo_connection()
+    print("Vigil AI Backend Shutdown")

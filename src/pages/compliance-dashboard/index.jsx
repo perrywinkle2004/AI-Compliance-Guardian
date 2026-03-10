@@ -1,127 +1,151 @@
 // src/pages/compliance-dashboard/index.jsx
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import Header from '../../components/ui/Header';
 import BreadcrumbNavigation from '../../components/ui/BreadcrumbNavigation';
 import MetricsOverview from './components/MetricsOverview';
 import PriorityAlerts from './components/PriorityAlerts';
 import ComplianceChart from './components/ComplianceChart.jsx';
 import RiskSummaryTable from './components/RiskSummaryTable';
-import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
 import FileUploadModal from './components/FileUploadModal';
 import ChatWidget from '../../components/ChatWidget';
 import DragDropTop from './components/DragDropTop';
 import CameraScanModal from './components/CameraScanModal';
-import QuickActions from './components/QuickActions';
 import RecentActivity from './components/RecentActivity';
+import { useAuth } from '../../context/AuthContext';
 
 const API_BASE = (import.meta?.env?.VITE_API_URL || "http://localhost:8000").replace(/\/+$/, "");
 
 const ComplianceDashboard = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   const [isFileUploadModalOpen, setIsFileUploadModalOpen] = useState(false);
-  const [qaLoading, setQaLoading] = useState(false);
   const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
 
-  /* ================= SETTINGS STATE (LOGIC ONLY) ================= */
+  /* ===== ACTIVITY STATE ===== */
+  const [activityItems, setActivityItems] = useState([]);
+  const [activityLoading, setActivityLoading] = useState(true);
+
+  /* ===== SETTINGS STATE ===== */
   const [theme, setTheme] = useState('light');
   const [unitPrefix, setUnitPrefix] = useState('normal');
   const [density, setDensity] = useState('normal');
   const [fontStyle, setFontStyle] = useState('default');
-  const [userRole, setUserRole] = useState('learner');
 
-  /* ================= READ SETTINGS FROM URL + STORAGE ================= */
+  /* ===== FORCE RE-READ SETTINGS ON NAVIGATION ===== */
   useEffect(() => {
-    setTheme(searchParams.get('theme') || localStorage.getItem('dashboardTheme') || 'light');
-    setUnitPrefix(searchParams.get('units') || localStorage.getItem('dashboardUnits') || 'normal');
-    setDensity(searchParams.get('density') || localStorage.getItem('dashboardDensity') || 'normal');
-    setFontStyle(searchParams.get('font') || localStorage.getItem('dashboardFont') || 'default');
-    setUserRole(localStorage.getItem('dashboardRole') || 'learner');
-  }, [searchParams]);
+    const params = new URLSearchParams(location.search);
 
-  /* ================= APPLY VISUAL SETTINGS ================= */
+    setTheme(params.get('theme') || localStorage.getItem('dashboardTheme') || 'light');
+    setUnitPrefix(params.get('units') || localStorage.getItem('dashboardUnits') || 'normal');
+    setDensity(params.get('density') || localStorage.getItem('dashboardDensity') || 'normal');
+    setFontStyle(params.get('font') || localStorage.getItem('dashboardFont') || 'default');
+  }, [location]);
+
+  /* ===== APPLY VISUAL SETTINGS ===== */
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     document.documentElement.setAttribute('data-font', fontStyle);
   }, [theme, fontStyle]);
 
-  /* ================= CAMERA EVENT ================= */
+  /* ===== CAMERA EVENT ===== */
   useEffect(() => {
     const onOpen = () => setIsCameraModalOpen(true);
     window.addEventListener('camera:open', onOpen);
     return () => window.removeEventListener('camera:open', onOpen);
   }, []);
 
-  /* ================= ACTIONS ================= */
+  /* ===== FETCH ACTIVITY ===== */
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchActivity() {
+      try {
+        const token = user?.token || localStorage.getItem('token');
+        const res = await fetch(
+          `${API_BASE}/activity?limit=5`,
+          token ? { headers: { Authorization: `Bearer ${token}` } } : {}
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setActivityItems(Array.isArray(data) ? data : []);
+      } catch {
+        // silently ignore network errors for the widget
+      } finally {
+        if (!cancelled) setActivityLoading(false);
+      }
+    }
+
+    fetchActivity();
+    const timer = setInterval(fetchActivity, 30_000); // refresh every 30 s
+
+    // Also refresh when a dashboard:refresh event fires (e.g. after file upload)
+    const onRefresh = () => fetchActivity();
+    window.addEventListener('dashboard:refresh', onRefresh);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      window.removeEventListener('dashboard:refresh', onRefresh);
+    };
+  }, [user]);
+
   const handleRefreshDashboard = () => {
     window.location.reload();
   };
 
-  const handleCameraUploaded = (result) => {
-    try {
-      window.dispatchEvent(
-        new CustomEvent('dashboard:filesProcessed', { detail: result })
-      );
-    } catch (e) { }
-  };
-
-  /* ================= RENDER (STRUCTURE UNCHANGED) ================= */
   return (
-    <div
-      className={`min-h-screen bg-background ${density === 'compact' ? 'text-sm' : ''
-        }`}
-    >
+    <div className={`min-h-screen bg-background ${density === 'compact' ? 'text-sm' : ''}`}>
       <Header />
       <main className="pt-16">
         <div className="max-w-7xl mx-auto px-4 lg:px-6 py-8">
-          <div className="mb-6">
-            <BreadcrumbNavigation />
-          </div>
+          <BreadcrumbNavigation />
 
           <div className="flex items-center justify-between mb-8">
             <div>
-              <h1 className="text-3xl font-bold text-foreground">
-                Compliance Dashboard
+              <h1 className="text-3xl font-bold">
+                {isAdmin ? "Compliance Dashboard" : "User Portal"}
               </h1>
               <p className="text-muted-foreground mt-2">
-                Monitor PII risks and compliance status across all data sources
+                {isAdmin ? "Monitor PII risks and compliance status" : "Manage your documents and compliance reports"}
               </p>
             </div>
 
-            {/* RIGHT-SIDE ACTIONS — UNCHANGED */}
             <div className="flex items-center space-x-3">
-              <Button
-                variant="outline"
-                iconName="RefreshCw"
-                iconPosition="left"
-                onClick={handleRefreshDashboard}
-              >
+              <Button onClick={handleRefreshDashboard}>
                 Refresh Data
               </Button>
 
-              <Button
-                variant="default"
-                iconName="Settings"
-                iconPosition="left"
-                onClick={() => navigate('/dashboard-settings')}
-              >
-                Dashboard Settings
-              </Button>
+              {isAdmin && (
+                <Button onClick={() => navigate('/dashboard-settings')}>
+                  Dashboard Settings
+                </Button>
+              )}
             </div>
           </div>
 
           <DragDropTop />
 
-          {/* DATA COMPONENTS (STRUCTURE SAME, SETTINGS APPLIED VIA PROPS/ATTRS) */}
           <MetricsOverview unitPrefix={unitPrefix} />
-          <PriorityAlerts />
-          <ComplianceChart />
-          <RiskSummaryTable />
 
-          <RecentActivity onViewAll={() => navigate('/activity')} />
+          {isAdmin && (
+            <>
+              <PriorityAlerts />
+              <ComplianceChart />
+              <RiskSummaryTable />
+            </>
+          )}
+
+          <RecentActivity
+            items={activityItems}
+            loading={activityLoading}
+            onViewAll={() => navigate('/activity')}
+          />
         </div>
       </main>
 
@@ -133,10 +157,6 @@ const ComplianceDashboard = () => {
       <CameraScanModal
         isOpen={isCameraModalOpen}
         onClose={() => setIsCameraModalOpen(false)}
-        onUploaded={(res) => {
-          handleCameraUploaded(res);
-          setIsCameraModalOpen(false);
-        }}
       />
 
       <ChatWidget backendUrl={API_BASE} />
