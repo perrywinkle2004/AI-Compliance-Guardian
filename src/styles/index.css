@@ -10,3 +10,9 @@ body {
   font-family: inherit;
   margin: unset;
 }
+
+.metrics-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}

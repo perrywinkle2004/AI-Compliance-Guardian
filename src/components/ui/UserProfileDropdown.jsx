@@ -1,18 +1,22 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Icon from '../AppIcon';
+import { useAuth } from '../../context/AuthContext';
 
 const UserProfileDropdown = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [sessionTimeLeft, setSessionTimeLeft] = useState(45); // minutes
   const dropdownRef = useRef(null);
 
-  // Mock user data - in real app, this would come from auth context
+  const { user, logout } = useAuth();
+  
+  // Logic: Admin is always "Sarah Mitchell" as requested
+  // User portal reflects the actual logged-in credentials
   const currentUser = {
-    name: 'Sarah Mitchell',
-    email: 'sarah.mitchell@company.com',
-    role: 'Compliance Officer',
+    name: user?.role === 'admin' ? 'Sarah Mitchell' : (user?.username || 'User'),
+    email: user?.role === 'admin' ? 'sarah.mitchell@company.com' : `${user?.username || 'user'}@company.com`,
+    role: user?.role === 'admin' ? 'Compliance Officer' : 'Standard User',
     avatar: null,
-    lastLogin: '2025-10-07 07:30:00'
+    lastLogin: new Date().toISOString().split('T')[0] + ' 07:30:00'
   };
 
   useEffect(() => {
@@ -36,8 +40,7 @@ const UserProfileDropdown = () => {
   }, []);
 
   const handleLogout = () => {
-    // In real app, this would call auth logout
-    console.log('Logging out...');
+    logout();
     setIsOpen(false);
   };
 

@@ -11,7 +11,7 @@ import Button from "../../../components/ui/Button";
  * - Generates reports via backend /reports/generate (form POST)
  */
 
-const API_BASE = (import.meta?.env?.VITE_API_URL || "http://localhost:3000").replace(/\/+$/, "");
+const API_BASE = (import.meta?.env?.VITE_API_URL || "http://localhost:8000").replace(/\/+$/, "");
 const UPLOAD_URL = `${API_BASE}/chat/upload`;
 const CSV_URL = `${API_BASE}/metrics/export/csv`;
 
@@ -220,6 +220,29 @@ const DragDropTop = ({ onProcessed }) => {
       setProcessing(false);
     }
   };
+  
+  const downloadAnalysisCSV = async () => {
+    if (!result) return;
+    try {
+      const resp = await fetch(`${API_BASE}/metrics/export/analysis`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(result)
+      });
+      if (!resp.ok) throw new Error("CSV export failed");
+      const blob = await resp.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `analysis_${result.filename || 'export'}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (err) {
+      console.error(err);
+      setError("Failed to download CSV");
+    }
+  };
 
   return (
     <div className="mb-6">
@@ -285,18 +308,23 @@ const DragDropTop = ({ onProcessed }) => {
         <div className="mt-4 p-4 bg-card rounded border border-border">
           <div className="flex items-start justify-between">
             <div className="pr-6 w-full">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold text-lg">AI Compliance Guardian Results</h3>
-                <div className={`px-3 py-1 rounded-full text-white text-sm font-semibold
-                  ${result?.report?.ai_analysis?.risk_level === 'CRITICAL' ? 'bg-red-800' :
-                    result?.report?.ai_analysis?.risk_level === 'HIGH' ? 'bg-red-600' :
-                    result?.report?.ai_analysis?.risk_level === 'MEDIUM' ? 'bg-yellow-500' :
-                    'bg-green-600'
-                  }
-                `}>
-                  Risk: {result?.report?.ai_analysis?.risk_level || 'UNKNOWN'}
+                <div className="metrics-header mb-4">
+                  <div className="flex items-center space-x-2">
+                    <span className="font-semibold text-lg text-foreground mr-2">Results</span>
+                    <div className={`px-3 py-1 rounded-full text-white text-[10px] uppercase font-bold
+                      ${result?.report?.ai_analysis?.risk_level === 'CRITICAL' ? 'bg-red-800' :
+                        result?.report?.ai_analysis?.risk_level === 'HIGH' ? 'bg-red-600' :
+                        result?.report?.ai_analysis?.risk_level === 'MEDIUM' ? 'bg-yellow-500' :
+                        'bg-green-600'
+                      }
+                    `}>
+                      Risk: {result?.report?.ai_analysis?.risk_level || 'UNKNOWN'}
+                    </div>
+                  </div>
+                  <Button variant="outline" size="sm" iconName="Download" onClick={downloadAnalysisCSV}>
+                    Download Metrics CSV
+                  </Button>
                 </div>
-              </div>
               
               <p className="text-sm text-muted-foreground mt-1 mb-4">{result?.report?.summary || result?.reply}</p>
               
@@ -311,17 +339,36 @@ const DragDropTop = ({ onProcessed }) => {
                  </div>
               </div>
 
-              <div className="mt-3">
-                <strong className="text-foreground">PII Detected (Counts):</strong>
-                <ul className="list-disc ml-6 mt-2 text-sm text-muted-foreground">
-                  {result?.report?.ai_analysis?.pii_detected && Object.keys(result.report.ai_analysis.pii_detected).length > 0 ? (
-                    Object.entries(result.report.ai_analysis.pii_detected).map(([k, count]) => (
-                      <li key={k}>
-                        <span className="capitalize">{k.replace('_', ' ')}:</span> {count} instance(s)
-                      </li>
+              <div className="mt-4">
+                <strong className="text-foreground text-sm">Detected PII values:</strong>
+                <div className="mt-2 space-y-2">
+                  {result?.report?.ai_analysis?.detailed_findings && result.report.ai_analysis.detailed_findings.length > 0 ? (
+                    result.report.ai_analysis.detailed_findings.slice(0, 15).map((finding, i) => (
+                      <div key={i} className="flex items-center justify-between p-2 bg-muted/30 rounded border border-border/50 text-xs">
+                        <div className="flex items-center space-x-2">
+                          <span className="font-bold text-primary min-w-[80px]">{finding.type}:</span>
+                          <span className="text-foreground font-mono break-all">{finding.value}</span>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold text-white
+                          ${finding.severity === 'Critical' ? 'bg-red-700' : 
+                            finding.severity === 'High' ? 'bg-red-500' :
+                            finding.severity === 'Medium' ? 'bg-yellow-600' : 'bg-green-600'}
+                        `}>
+                          {finding.severity}
+                        </span>
+                      </div>
                     ))
-                  ) : <li className="text-success">No PII detected</li>}
-                </ul>
+                  ) : (
+                    <div className="text-xs text-success bg-success/10 p-2 rounded border border-success/20">
+                      No sensitive PII values found in this document.
+                    </div>
+                  )}
+                  {result?.report?.ai_analysis?.detailed_findings?.length > 15 && (
+                    <p className="text-[10px] text-muted-foreground italic text-center mt-1">
+                      ...and {result.report.ai_analysis.detailed_findings.length - 15} more findings
+                    </p>
+                  )}
+                </div>
               </div>
               
               {result?.report?.ai_analysis?.violated_regulations && result.report.ai_analysis.violated_regulations.length > 0 && (
@@ -343,12 +390,6 @@ const DragDropTop = ({ onProcessed }) => {
                   </ul>
                 </div>
               )}
-            </div>
-
-            <div className="text-right">
-              <a href={`${CSV_URL}?range_hours=24`} className="inline-block">
-                <Button variant="default" iconName="Download">Download Metrics CSV</Button>
-              </a>
             </div>
           </div>
         </div>

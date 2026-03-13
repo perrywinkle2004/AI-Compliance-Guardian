@@ -1,71 +1,55 @@
 import os
-import csv
-import json
+import pandas as pd
+import pdfplumber
+from docx import Document
 import logging
-from io import BytesIO
-from typing import Optional
 
-# Optional imports for different file types
-try:
-    from docx import Document
-except ImportError:
-    Document = None
-
-try:
-    import PyPDF2
-except ImportError:
-    PyPDF2 = None
-
-
-def extract_text_from_file(file_path: str, mime_type: str = "") -> str:
-    """
-    Extracts text content from various file formats.
-    """
-    ext = os.path.splitext(file_path)[1].lower()
-    
+def extract_pdf_text(path):
+    text = ""
     try:
-        if ext in ['.txt', '.log']:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                return f.read()
-                
-        elif ext == '.csv':
-            text = []
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                reader = csv.reader(f)
-                for row in reader:
-                    text.append(" ".join(row))
-            return "\n".join(text)
-            
-        elif ext == '.json':
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                data = json.load(f)
-                return json.dumps(data, indent=2)
-                
-        elif ext in ['.docx', '.doc']:
-            if Document:
-                doc = Document(file_path)
-                return "\n".join([paragraph.text for paragraph in doc.paragraphs])
-            else:
-                return "Python-docx not installed. Cannot read DOCX."
-                
-        elif ext == '.pdf':
-            if PyPDF2:
-                text = []
-                with open(file_path, 'rb') as f:
-                    reader = PyPDF2.PdfReader(f)
-                    for page in reader.pages:
-                        extracted = page.extract_text()
-                        if extracted:
-                            text.append(extracted)
-                return "\n".join(text)
-            else:
-                return "PyPDF2 not installed. Cannot read PDF."
-                
-        else:
-            # Fallback to raw text extraction for unknown types
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                return f.read()
-                
+        with pdfplumber.open(path) as pdf:
+            for page in pdf.pages:
+                text += page.extract_text() or ""
     except Exception as e:
-        logging.error(f"Error reading file {file_path}: {e}")
-        return f"Error extracting text: {e}"
+        print(f"PDF extraction error: {e}")
+    return text
+
+def extract_docx_text(path):
+    try:
+        doc = Document(path)
+        text = "\n".join([p.text for p in doc.paragraphs])
+        return text
+    except Exception as e:
+        print(f"DOCX extraction error: {e}")
+        return ""
+
+def extract_csv_text(path):
+    try:
+        df = pd.read_csv(path)
+        return df.to_string()
+    except Exception as e:
+        print(f"CSV extraction error: {e}")
+        return ""
+
+def extract_text_from_file(path):
+    text = ""
+    if path.endswith(".pdf"):
+        text = extract_pdf_text(path)
+    elif path.endswith(".docx"):
+        text = extract_docx_text(path)
+    elif path.endswith(".csv"):
+        text = extract_csv_text(path)
+    elif path.endswith(".txt"):
+        try:
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                text = f.read()
+        except Exception as e:
+            print(f"TXT extraction error: {e}")
+    
+    # Debug output
+    print(f"Extracted text length: {len(text)}")
+    
+    if len(text) < 20:
+        return "ERROR: Document extraction failed. No readable text found or document too short."
+        
+    return text

@@ -5,7 +5,7 @@ Imported by both auth.py and main.py so all modules write to the same list.
 Python module imports are singletons — this is safe.
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 # In-memory store — ephemeral (cleared on server restart)
@@ -29,12 +29,12 @@ def _record_activity(
             "details": details or {},
             "username": username,
             "role": role,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
         }
         ACTIVITY.insert(0, entry)
         # Keep list bounded
-        if len(ACTIVITY) > _MAX_ITEMS:
-            del ACTIVITY[_MAX_ITEMS:]
+        while len(ACTIVITY) > _MAX_ITEMS:
+            ACTIVITY.pop()
     except Exception:
         pass  # Never crash the caller
 
@@ -45,8 +45,8 @@ def fmt_time_label(ts: Optional[str]) -> str:
         return ""
     try:
         raw = ts.rstrip("Z")
-        dt = datetime.fromisoformat(raw)
-        diff = datetime.utcnow() - dt
+        dt = datetime.fromisoformat(raw).replace(tzinfo=timezone.utc)
+        diff = datetime.now(timezone.utc) - dt
         total_s = int(diff.total_seconds())
         if total_s < 60:
             return f"{total_s}s ago"

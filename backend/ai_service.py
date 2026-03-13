@@ -1,13 +1,14 @@
 import os
 import json
-import openai
+from openai import OpenAI
 from typing import Dict, Any, Tuple
-from database import ComplianceAnalysisResult
+
 
 # Configure OpenAI
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+client = None
 if OPENAI_API_KEY:
-    openai.api_key = OPENAI_API_KEY
+    client = OpenAI(api_key=OPENAI_API_KEY)
 
 # The single prompt template
 PROMPT_TEMPLATE = """
@@ -52,8 +53,8 @@ async def analyze_document_with_ai(text: str, document_name: str, dataset_type: 
     Sends the extracted text to OpenAI and returns the parsed JSON dict and raw text.
     """
 
-    if not OPENAI_API_KEY:
-        # Fallback for demo if no key is provided
+    if not client:
+        # Fallback for demo if no key or client is provided
         return {
             "compliance_status": "PARTIALLY_COMPLIANT",
             "risk_level": "MEDIUM",
@@ -62,7 +63,7 @@ async def analyze_document_with_ai(text: str, document_name: str, dataset_type: 
             "violated_regulations": ["GDPR"],
             "risk_items": 1,
             "remediation": ["Mask email addresses"]
-        }, "No API Key provided, generated mock response."
+        }, "No API Key or OpenAI client provided, generated mock response."
 
     try:
 
@@ -72,7 +73,7 @@ async def analyze_document_with_ai(text: str, document_name: str, dataset_type: 
             text=text[:30000]  # Limit text length for safety
         )
 
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are an expert compliance officer."},
@@ -82,7 +83,7 @@ async def analyze_document_with_ai(text: str, document_name: str, dataset_type: 
             max_tokens=2048
         )
 
-        result_text = response.choices[0].message["content"]
+        result_text = response.choices[0].message.content
 
         # Parse JSON
         try:

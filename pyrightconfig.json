@@ -1,23 +1,14 @@
 {
+  "venvPath": "backend",
+  "venv": "venv",
   "pythonVersion": "3.13",
   "pythonPlatform": "Windows",
-  "pythonPath": "C:\\Users\\HP\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
-  "extraPaths": [
-    "C:\\Users\\HP\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages",
-    "."
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "error",
+  "include": [
+    "backend"
   ],
-  "useLibraryCodeForTypes": true,
-  "typeCheckingMode": "off",
-  "reportMissingImports": "none",
-  "reportMissingModuleSource": "none",
-  "reportGeneralTypeIssues": "none",
-  "reportAttributeAccessIssue": "none",
-  "reportOptionalMemberAccess": "none",
-  "reportOperatorIssue": "none",
-  "reportArgumentType": "none",
-  "reportIndexIssue": "none",
-  "reportCallIssue": "none",
-  "reportReturnType": "none",
-  "reportUnknownMemberType": "none",
-  "reportUnknownVariableType": "none"
+  "extraPaths": [
+    "backend"
+  ]
 }

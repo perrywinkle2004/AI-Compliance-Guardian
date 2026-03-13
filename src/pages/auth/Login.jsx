@@ -23,6 +23,16 @@ const Login = () => {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [successMessage, setSuccessMessage] = useState('');
+    const [rememberMe, setRememberMe] = useState(false);
+
+    // Effect to check for remembered username
+    useEffect(() => {
+        const savedUsername = localStorage.getItem('rememberedUsername');
+        if (savedUsername) {
+            setFormData(prev => ({ ...prev, username: savedUsername }));
+            setRememberMe(true);
+        }
+    }, []);
 
     useEffect(() => {
         const role = searchParams.get('role');
@@ -71,7 +81,13 @@ const Login = () => {
                 setIsRegistering(false);
                 setSuccessMessage("Account created successfully! Please sign in with your password.");
             } else {
-                await login(formData.username, formData.password);
+                await login(formData.username, formData.password, rememberMe);
+
+                if (rememberMe) {
+                    localStorage.setItem('rememberedUsername', formData.username);
+                } else {
+                    localStorage.removeItem('rememberedUsername');
+                }
 
                 // Redirect based on role to the oroginal dashboard pages
                 if (activeRole === 'admin') {
@@ -155,6 +171,8 @@ const Login = () => {
                             handleSubmit={handleSubmit}
                             loading={loading}
                             color="indigo"
+                            rememberMe={rememberMe}
+                            setRememberMe={setRememberMe}
                         />
                     ) : (
                         <div className="text-center py-12">
@@ -197,6 +215,8 @@ const Login = () => {
                             handleSubmit={handleSubmit}
                             loading={loading}
                             color="purple"
+                            rememberMe={rememberMe}
+                            setRememberMe={setRememberMe}
                         />
                     ) : (
                         <div className="text-center py-12">
@@ -217,7 +237,7 @@ const Login = () => {
     );
 };
 
-const AuthForm = ({ isRegistering, setIsRegistering, formData, setFormData, handleSubmit, loading, color, role }) => {
+const AuthForm = ({ isRegistering, setIsRegistering, formData, setFormData, handleSubmit, loading, color, role, rememberMe, setRememberMe }) => {
     const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
     // Dynamic styles based on color prop
@@ -268,7 +288,7 @@ const AuthForm = ({ isRegistering, setIsRegistering, formData, setFormData, hand
                     onChange={handleChange}
                     className={`w-full bg-slate-950/50 border border-slate-700 text-white rounded-xl py-3 pl-10 pr-4 outline-none transition-all ${activeBorder} ${activeShadow}`}
                     required
-                    minLength={8}
+                    minLength={6}
                 />
             </div>
 
@@ -290,10 +310,51 @@ const AuthForm = ({ isRegistering, setIsRegistering, formData, setFormData, hand
             {!isRegistering && (
                 <div className="flex justify-between items-center text-xs text-slate-400">
                     <label className="flex items-center gap-2 cursor-pointer hover:text-slate-300">
-                        <input type="checkbox" className={`rounded bg-slate-800 border-slate-700 ${color === 'indigo' ? 'text-indigo-600' : 'text-purple-600'} focus:ring-0`} />
+                        <input
+                            type="checkbox"
+                            checked={rememberMe}
+                            onChange={(e) => setRememberMe(e.target.checked)}
+                            className={`rounded bg-slate-800 border-slate-700 ${color === 'indigo' ? 'text-indigo-600' : 'text-purple-600'} focus:ring-0`}
+                        />
                         Remember me
                     </label>
-                    <a href="#" className="hover:text-white transition-colors">Forgot Password?</a>
+                    <button
+                        type="button"
+                        onClick={async () => {
+
+                            const username = prompt("Enter your username");
+                            const newPassword = prompt("Enter new password");
+
+                            if (!username || !newPassword) return;
+
+                            try {
+                                const API_BASE = (import.meta?.env?.VITE_API_URL || "http://localhost:8000").replace(/\/+$/, "");
+                                await fetch(`${API_BASE}/auth/reset-password`, {
+                                    method: "POST",
+
+                                    headers: {
+                                        "Content-Type": "application/json"
+                                    },
+
+                                    body: JSON.stringify({
+                                        username: username,
+                                        password: newPassword
+                                    })
+                                });
+
+                                alert("Password reset successful");
+
+                            } catch {
+
+                                alert("Password reset failed");
+
+                            }
+
+                        }}
+                        className="hover:text-white transition-colors"
+                    >
+                        Forgot Password?
+                    </button>
                 </div>
             )}
 
