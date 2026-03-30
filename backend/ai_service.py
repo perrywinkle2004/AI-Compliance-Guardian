@@ -33,7 +33,7 @@ Analyze the text and provide a structured JSON response EXACTLY matching this sc
     "phone_number": count (number),
     "email": count (number)
   }},
-  "violated_regulations": ["GDPR", "HIPAA", "ISO27001"] (list only the violated ones, empty list if None),
+  "violated_regulations": ["GDPR", "HIPAA", "ISO27001", "NAAC", "PCI-DSS"] (list only the violated ones, empty list if None),
   "risk_items": total number of unique risk or PII items found (number),
   "remediation": [
     "Suggested action 1",
